@@ -55,7 +55,11 @@ func (h *Handler) ListServicesHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	query.Find(&services)
+	result := query.Find(&services)
+	if result.Error != nil {
+		errorResponse(w, "Error finding services", http.StatusInternalServerError)
+		return
+	}
 
 	// Convert to response format
 	var responses []types.ServiceResponse
@@ -83,6 +87,20 @@ func (h *Handler) CreateServiceHandler(w http.ResponseWriter, r *http.Request) {
 	serviceID := uuid.New().String()
 	now := time.Now()
 
+	// Start a transaction
+	tx := h.DB.Begin()
+	if tx.Error != nil {
+		errorResponse(w, "Failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+
+	// Use defer to ensure rollback on panic
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
 	service := types.MCPService{
 		ID:          serviceID,
 		Name:        request.Name,
@@ -93,8 +111,8 @@ func (h *Handler) CreateServiceHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create service in the database
-	result := h.DB.Create(&service)
-	if result.Error != nil {
+	if err := tx.Create(&service).Error; err != nil {
+		tx.Rollback()
 		errorResponse(w, "Failed to register service", http.StatusInternalServerError)
 		return
 	}
@@ -106,7 +124,11 @@ func (h *Handler) CreateServiceHandler(w http.ResponseWriter, r *http.Request) {
 			Name:      name,
 			Enabled:   enabled,
 		}
-		h.DB.Create(&capability)
+		if err := h.DB.Create(&capability).Error; err != nil {
+			tx.Rollback()
+			errorResponse(w, "Failed to add capability", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Add categories
@@ -115,7 +137,11 @@ func (h *Handler) CreateServiceHandler(w http.ResponseWriter, r *http.Request) {
 			ServiceID: serviceID,
 			Name:      name,
 		}
-		h.DB.Create(&category)
+		if err := tx.Create(&category); err != nil {
+			tx.Rollback()
+			errorResponse(w, "Failed to add capability", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Add metadata
@@ -125,12 +151,26 @@ func (h *Handler) CreateServiceHandler(w http.ResponseWriter, r *http.Request) {
 			Key:       key,
 			Value:     value,
 		}
-		h.DB.Create(&metadata)
+		if err := tx.Create(&metadata).Error; err != nil {
+			tx.Rollback()
+			errorResponse(w, "Failed to add metadata", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		errorResponse(w, "Failed to commit transaction", http.StatusInternalServerError)
+		return
 	}
 
 	// Retrieve the full service to return
 	var createdService types.MCPService
-	h.DB.Preload("Capabilities").Preload("Categories").Preload("Metadata").First(&createdService, "id = ?", serviceID)
+	err := h.DB.Preload("Capabilities").Preload("Categories").Preload("Metadata").First(&createdService, "id = ?", serviceID).Error
+	if err != nil {
+		errorResponse(w, "Service created but failed to retrieve details", http.StatusInternalServerError)
+		return
+	}
 
 	jsonResponse(w, types.ServiceModelToResponse(createdService), http.StatusCreated)
 }
@@ -159,6 +199,7 @@ func (h *Handler) UpdateServiceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if service exists before starting transaction
 	var existingService types.MCPService
 	result := h.DB.First(&existingService, "id = ?", serviceID)
 	if result.Error != nil {
@@ -172,6 +213,20 @@ func (h *Handler) UpdateServiceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Start transaction
+	tx := h.DB.Begin()
+	if tx.Error != nil {
+		errorResponse(w, "Failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+
+	// Use defer with recover to ensure rollback on panic
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
 	// Update service details
 	existingService.Name = request.Name
 	existingService.Description = request.Description
@@ -179,43 +234,84 @@ func (h *Handler) UpdateServiceHandler(w http.ResponseWriter, r *http.Request) {
 	existingService.LastSeen = time.Now()
 	existingService.ApiDocs = request.ApiDocs
 
-	h.DB.Save(&existingService)
+	if err := tx.Save(&existingService).Error; err != nil {
+		tx.Rollback()
+		errorResponse(w, "Failed to update service", http.StatusInternalServerError)
+		return
+	}
 
 	// Update capabilities: remove old ones and add new ones
-	h.DB.Where("service_id = ?", serviceID).Delete(&types.Capability{})
+	if err := tx.Where("service_id = ?", serviceID).Delete(&types.Capability{}).Error; err != nil {
+		tx.Rollback()
+		errorResponse(w, "Failed to remove old capabilities", http.StatusInternalServerError)
+		return
+	}
+
 	for name, enabled := range request.Capabilities {
 		capability := types.Capability{
 			ServiceID: serviceID,
 			Name:      name,
 			Enabled:   enabled,
 		}
-		h.DB.Create(&capability)
+		if err := tx.Create(&capability).Error; err != nil {
+			tx.Rollback()
+			errorResponse(w, "Failed to add capability", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Update categories: remove old ones and add new ones
-	h.DB.Where("service_id = ?", serviceID).Delete(&types.Category{})
+	if err := tx.Where("service_id = ?", serviceID).Delete(&types.Category{}).Error; err != nil {
+		tx.Rollback()
+		errorResponse(w, "Failed to remove old categories", http.StatusInternalServerError)
+		return
+	}
+
 	for _, name := range request.Categories {
 		category := types.Category{
 			ServiceID: serviceID,
 			Name:      name,
 		}
-		h.DB.Create(&category)
+		if err := tx.Create(&category).Error; err != nil {
+			tx.Rollback()
+			errorResponse(w, "Failed to add category", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Update metadata: remove old ones and add new ones
-	h.DB.Where("service_id = ?", serviceID).Delete(&types.MetadataItem{})
+	if err := tx.Where("service_id = ?", serviceID).Delete(&types.MetadataItem{}).Error; err != nil {
+		tx.Rollback()
+		errorResponse(w, "Failed to remove old metadata", http.StatusInternalServerError)
+		return
+	}
+
 	for key, value := range request.Metadata {
 		metadata := types.MetadataItem{
 			ServiceID: serviceID,
 			Key:       key,
 			Value:     value,
 		}
-		h.DB.Create(&metadata)
+		if err := tx.Create(&metadata).Error; err != nil {
+			tx.Rollback()
+			errorResponse(w, "Failed to add metadata", http.StatusInternalServerError)
+			return
+		}
 	}
 
-	// Retrieve the updated service to return
+	// Commit the transaction
+	if err := tx.Commit().Error; err != nil {
+		errorResponse(w, "Failed to commit transaction", http.StatusInternalServerError)
+		return
+	}
+
+	// Retrieve the updated service to return (outside transaction)
 	var updatedService types.MCPService
-	h.DB.Preload("Capabilities").Preload("Categories").Preload("Metadata").First(&updatedService, "id = ?", serviceID)
+	if err := h.DB.Preload("Capabilities").Preload("Categories").Preload("Metadata").
+		First(&updatedService, "id = ?", serviceID).Error; err != nil {
+		errorResponse(w, "Service updated but failed to retrieve details", http.StatusInternalServerError)
+		return
+	}
 
 	jsonResponse(w, types.ServiceModelToResponse(updatedService), http.StatusOK)
 }
@@ -227,6 +323,7 @@ func (h *Handler) DeleteServiceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if service exists before starting transaction
 	var service types.MCPService
 	result := h.DB.First(&service, "id = ?", serviceID)
 	if result.Error != nil {
@@ -234,13 +331,51 @@ func (h *Handler) DeleteServiceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete related records
-	h.DB.Where("service_id = ?", serviceID).Delete(&types.Capability{})
-	h.DB.Where("service_id = ?", serviceID).Delete(&types.Category{})
-	h.DB.Where("service_id = ?", serviceID).Delete(&types.MetadataItem{})
+	// Start transaction
+	tx := h.DB.Begin()
+	if tx.Error != nil {
+		errorResponse(w, "Failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+
+	// Use defer with recover to ensure rollback on panic
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Delete related records first
+	if err := tx.Where("service_id = ?", serviceID).Delete(&types.Capability{}).Error; err != nil {
+		tx.Rollback()
+		errorResponse(w, "Failed to delete capabilities", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Where("service_id = ?", serviceID).Delete(&types.Category{}).Error; err != nil {
+		tx.Rollback()
+		errorResponse(w, "Failed to delete categories", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Where("service_id = ?", serviceID).Delete(&types.MetadataItem{}).Error; err != nil {
+		tx.Rollback()
+		errorResponse(w, "Failed to delete metadata", http.StatusInternalServerError)
+		return
+	}
 
 	// Delete the service
-	h.DB.Delete(&service)
+	if err := tx.Delete(&service).Error; err != nil {
+		tx.Rollback()
+		errorResponse(w, "Failed to delete service", http.StatusInternalServerError)
+		return
+	}
+
+	// Commit the transaction
+	if err := tx.Commit().Error; err != nil {
+		errorResponse(w, "Failed to commit transaction", http.StatusInternalServerError)
+		return
+	}
 
 	jsonResponse(w, map[string]string{"message": "Service unregistered"}, http.StatusOK)
 }
