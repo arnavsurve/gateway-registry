@@ -124,7 +124,7 @@ func (h *Handler) CreateServiceHandler(w http.ResponseWriter, r *http.Request) {
 			Name:      name,
 			Enabled:   enabled,
 		}
-		if err := h.DB.Create(&capability).Error; err != nil {
+		if err := tx.Create(&capability).Error; err != nil {
 			tx.Rollback()
 			errorResponse(w, "Failed to add capability", http.StatusInternalServerError)
 			return
@@ -137,9 +137,9 @@ func (h *Handler) CreateServiceHandler(w http.ResponseWriter, r *http.Request) {
 			ServiceID: serviceID,
 			Name:      name,
 		}
-		if err := tx.Create(&category); err != nil {
+		if err := tx.Create(&category).Error; err != nil {
 			tx.Rollback()
-			errorResponse(w, "Failed to add capability", http.StatusInternalServerError)
+			errorResponse(w, "Failed to add category", http.StatusInternalServerError)
 			return
 		}
 	}
