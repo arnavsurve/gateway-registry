@@ -49,12 +49,11 @@ func main() {
 	// Prune inactive services
 	go func() {
 		for {
-			// Prune every 5 min
-			// TODO: change this to 1 hour in prod, change heartbeat for mock registered services as well
-			time.Sleep(1 * time.Hour)
+			// Prune every 30 sec
+			time.Sleep(30 * time.Second)
 
 			// Remove services that haven't sent a heartbeat in the last prune cycle
-			cutoff := time.Now().Add(-1 * time.Hour)
+			cutoff := time.Now().Add(-30 * time.Second)
 			var inactiveServices []types.MCPService
 			db.Where("last_seen < ?", cutoff).Find(&inactiveServices)
 
