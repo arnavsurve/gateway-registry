@@ -274,9 +274,14 @@ func (h *Handler) SearchServicesHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var services []types.MCPService
-	h.DB.Preload("Capabilities").Preload("Categories").Preload("Metadata").
+	result := h.DB.Preload("Capabilities").Preload("Categories").Preload("Metadata").
 		Where("name ILIKE ? OR description ILIKE ?", "%"+query+"%", "%"+query+"%").
 		Find(&services)
+
+	if result.Error != nil {
+		errorResponse(w, "Error searching for services", http.StatusInternalServerError)
+		return
+	}
 
 	// Convert to response format
 	var responses []types.ServiceResponse
