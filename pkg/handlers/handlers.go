@@ -89,6 +89,7 @@ func (h *Handler) CreateServiceHandler(w http.ResponseWriter, r *http.Request) {
 		Description: request.Description,
 		URL:         request.URL,
 		LastSeen:    now,
+		ApiDocs:     request.ApiDocs,
 	}
 
 	// Create service in the database
@@ -176,6 +177,7 @@ func (h *Handler) UpdateServiceHandler(w http.ResponseWriter, r *http.Request) {
 	existingService.Description = request.Description
 	existingService.URL = request.URL
 	existingService.LastSeen = time.Now()
+	existingService.ApiDocs = request.ApiDocs
 
 	h.DB.Save(&existingService)
 

@@ -15,6 +15,7 @@ type MCPService struct {
 	CreatedAt    time.Time      `json:"created_at" gorm:"autoCreateTime"`
 	LastSeen     time.Time      `json:"last_seen"`
 	Metadata     []MetadataItem `json:"metadata" gorm:"foreignKey:ServiceID"`
+	ApiDocs      string         `json:"api_docs"`
 }
 
 // Capability represents a service capability
@@ -48,6 +49,7 @@ type ServiceRegistrationRequest struct {
 	Capabilities map[string]bool   `json:"capabilities" binding:"required"`
 	Categories   []string          `json:"categories" binding:"required"`
 	Metadata     map[string]string `json:"metadata"`
+	ApiDocs      string            `json:"api_docs"`
 }
 
 // ServiceResponse represents the outgoing service response
@@ -61,6 +63,7 @@ type ServiceResponse struct {
 	CreatedAt    time.Time         `json:"created_at"`
 	LastSeen     time.Time         `json:"last_seen"`
 	Metadata     map[string]string `json:"metadata"`
+	ApiDocs      string            `json:"api_docs"`
 }
 
 // HeartbeatRequest represents a heartbeat request
@@ -95,5 +98,6 @@ func ServiceModelToResponse(service MCPService) ServiceResponse {
 		CreatedAt:    service.CreatedAt,
 		LastSeen:     service.LastSeen,
 		Metadata:     metadata,
+		ApiDocs:      service.ApiDocs,
 	}
 }

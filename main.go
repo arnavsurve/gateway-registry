@@ -23,10 +23,11 @@ func main() {
 	r := mux.NewRouter()
 	services := r.PathPrefix("/services").Subrouter()
 	services.HandleFunc("", h.ListServicesHandler).Methods(http.MethodGet)
+	services.HandleFunc("", h.CreateServiceHandler).Methods(http.MethodPost)
 	services.HandleFunc("/{id}", h.GetServiceHandler).Methods(http.MethodGet)
 	services.HandleFunc("/{id}", h.UpdateServiceHandler).Methods(http.MethodPut)
 	services.HandleFunc("/{id}", h.DeleteServiceHandler).Methods(http.MethodDelete)
-	services.HandleFunc("/{id}/heartbeat", h.SearchServicesHandler).Methods(http.MethodGet)
+	services.HandleFunc("/{id}/heartbeat", h.HeartbeatHandler).Methods(http.MethodGet)
 	services.HandleFunc("/search", h.SearchServicesHandler).Methods(http.MethodGet)
 
 	corsMiddleware := handlers.CORS(
@@ -39,7 +40,7 @@ func main() {
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			log.Printf("Started %s %s", r.Method, r.URL.Path)
+			log.Printf("%s %s", r.Method, r.URL.Path)
 			next.ServeHTTP(w, r)
 			log.Printf("Completed %s %s in %v", r.Method, r.URL.Path, time.Since(start))
 		})
@@ -50,13 +51,15 @@ func main() {
 		for {
 			// Prune every 5 min
 			// TODO: change this to 1 hour in prod, change heartbeat for mock registered services as well
-			time.Sleep(5 * time.Minute)
+			time.Sleep(1 * time.Hour)
 
 			// Remove services that haven't sent a heartbeat in the last prune cycle
-			cutoff := time.Now().Add(-5 * time.Minute)
+			cutoff := time.Now().Add(-1 * time.Hour)
 			var inactiveServices []types.MCPService
 			db.Where("last_seen < ?", cutoff).Find(&inactiveServices)
 
+			// TODO: rather than hard deleting just use a deleted flag in case the service comes back.
+			// or maybe it's not expensive for a hard delete and registration. look into it
 			for _, service := range inactiveServices {
 				// Delete related records
 				db.Where("service_id = ?", service.ID).Delete(&types.Capability{})
@@ -71,5 +74,5 @@ func main() {
 	}()
 
 	log.Println("MCP Registry Service running at :42069")
-	http.ListenAndServe(":8080", corsMiddleware(r))
+	http.ListenAndServe(":42069", corsMiddleware(r))
 }

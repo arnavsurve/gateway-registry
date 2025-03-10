@@ -8,6 +8,7 @@ import (
 
 var db *gorm.DB
 
+// InitDB initializes a database connection and runs migrations
 func InitDB() (*gorm.DB, error) {
 	dsn := "host=localhost user=postgres password=postgres dbname=gateway_registry port=5432 sslmode=disable"
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
