@@ -24,11 +24,11 @@ func main() {
 	services := r.PathPrefix("/services").Subrouter()
 	services.HandleFunc("", h.ListServicesHandler).Methods(http.MethodGet)
 	services.HandleFunc("", h.CreateServiceHandler).Methods(http.MethodPost)
+	services.HandleFunc("/search", h.SearchServicesHandler).Methods(http.MethodGet)
 	services.HandleFunc("/{id}", h.GetServiceHandler).Methods(http.MethodGet)
 	services.HandleFunc("/{id}", h.UpdateServiceHandler).Methods(http.MethodPut)
 	services.HandleFunc("/{id}", h.DeleteServiceHandler).Methods(http.MethodDelete)
 	services.HandleFunc("/{id}/heartbeat", h.HeartbeatHandler).Methods(http.MethodGet)
-	services.HandleFunc("/search", h.SearchServicesHandler).Methods(http.MethodGet)
 
 	corsMiddleware := handlers.CORS(
 		handlers.AllowedOrigins([]string{"*"}),
